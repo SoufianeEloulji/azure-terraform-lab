@@ -27,12 +27,12 @@ run "nommage_et_tags" {
 }
 
 run "mdp_desactive" {
-    command = plan
+  command = plan
 
-    assert {
-        condition = module.vm.disable_password_authentication == true
-        error_message = "La VM doit obligatoirement désactiver l'authentification par mot de passe."
-    }
+  assert {
+    condition     = module.vm.disable_password_authentication == true
+    error_message = "La VM doit désactiver l'authentification par mot de passe."
+  }
 }
 
 run "refuse_un_environnement_inconnu" {
