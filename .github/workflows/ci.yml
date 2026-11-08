@@ -1,0 +1,130 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Permissions minimales par défaut : lecture seule
+permissions:
+  contents: read
+
+jobs:
+  terraform-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+
+      - uses: terraform-linters/setup-tflint@v4
+
+      - name: Format
+        run: terraform fmt -check -recursive
+
+      - name: Init
+        working-directory: envs/dev
+        run: terraform init -input=false
+
+      - name: Validate
+        working-directory: envs/dev
+        run: terraform validate
+
+      - name: Lint
+        run: tflint --recursive
+
+      - name: Tests (provider simulé)
+        working-directory: envs/dev
+        run: terraform test
+
+  security-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Scan du code d'infrastructure
+        run: |
+          pip install checkov
+          checkov -d . --framework terraform --soft-fail
+
+  oidc-verify:
+    # Contexte PR ou main : même sub que les federated credentials "github-pr" / "github-main"
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      REPO: ${{ github.repository }}
+      EVENT: ${{ github.event_name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install "pyjwt[crypto]"
+
+      - name: Vérifier le jeton (rôle du cloud)
+        run: |
+          if [ "$EVENT" = "pull_request" ]; then
+            EXPECTED="repo:${REPO}:pull_request"
+          else
+            EXPECTED="repo:${REPO}:ref:refs/heads/main"
+          fi
+          python scripts/verify_oidc.py "$EXPECTED"
+
+  deploy-dev:
+    # Même schéma que l'apply Azure : derrière un environment avec approbation
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [terraform-checks, oidc-verify]
+    runs-on: ubuntu-latest
+    environment: dev
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install "pyjwt[crypto]"
+
+      - name: Vérifier le jeton (contexte environment)
+        run: python scripts/verify_oidc.py "repo:${REPO}:environment:dev"
+
+      - name: Apply (non exécuté)
+        run: echo "Ici, terraform apply s'exécuterait avec l'identité obtenue via OIDC."
+
+  plan-azure:
+    # À activer uniquement si vous obtenez un tenant Azure
+    if: ${{ false }}
+    needs: terraform-checks
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      ARM_USE_OIDC: "true"
+      ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      TF_VAR_ssh_public_key: ${{ vars.SSH_PUBLIC_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+
+      - name: Init et plan
+        working-directory: envs/dev
+        run: |
+          terraform init -input=false
+          terraform plan -input=false
