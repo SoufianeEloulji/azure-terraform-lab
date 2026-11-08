@@ -32,7 +32,6 @@ run "mdp_desactive" {
     assert {
         condition = module.vm.disable_password_authentication == true
         error_message = "La VM doit obligatoirement désactiver l'authentification par mot de passe."
-
     }
 }
 
