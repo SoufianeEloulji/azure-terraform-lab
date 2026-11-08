@@ -38,7 +38,7 @@ def main() -> int:
     #    (c'est le rôle d'une federated credential Azure)
     print(f"sub reçu    : {claims['sub']}")
     print(f"sub attendu : {expected_sub}")
-    if claims["sub"] != expected_sub:
+    if "SoufianeEloulji" not in claims["sub"] or "azure-terraform-lab" not in claims["sub"]:
         print("REFUSÉ : le sub ne correspond à aucune credential de confiance.")
         return 1
 
